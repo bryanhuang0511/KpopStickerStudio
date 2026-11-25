@@ -1,0 +1,24 @@
+# Python virtual environments & cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local runtime staging & secrets (never commit keys or temp images)
+.env
+.studio_runtime/
+agent_queue.json
+output/
+temp/
+*.tmp
+*.log
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
