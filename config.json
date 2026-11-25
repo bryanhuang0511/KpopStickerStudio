@@ -13,30 +13,5 @@
   "default_text_position": "bottom",
   "default_text_scale": 0.11,
   "default_stroke_ratio": 0.068,
-  "naming_separator": "_",
-  "server_host": "0.0.0.0",
-  "server_port": 8765,
-  "gemini_model": "gemini-2.5-flash",
-  "quick_members": [
-    "沅禧",
-    "Moka",
-    "Minju",
-    "Iroha",
-    "Yunah",
-    "Ahyeon",
-    "Rora",
-    "Asa",
-    "Rami",
-    "Chiquita",
-    "雨琦",
-    "薇娟",
-    "舒華"
-  ],
-  "quick_captions": {
-    "日常回訊": ["在幹嘛", "收到！", "馬上來", "早安", "晚安", "謝謝泥", "沒問題", "出發了"],
-    "偷看盯人": ["偷看", "盯——", "我看着你", "嗨～", "抓到了", "在想什麼"],
-    "吐槽無語": ["笑死", "真的假的", "你在說啥", "已讀亂回", "大傻眼", "我先走了", "蛤？"],
-    "賣萌撒嬌": ["不知道捏~", "委屈", "原諒我嘛", "拜託～", "開心！", "今天是我生日"],
-    "韓文梗字": ["진짜?", "모루겠당", "대박", "고마워", "뭐해?", "헐"]
-  }
+  "naming_separator": "_"
 }

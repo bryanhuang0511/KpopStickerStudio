@@ -1,14 +1,9 @@
-"""KpopStickerStudio 核心引擎與本機 HTTP API 測試。"""
+"""KpopStickerStudio 純無損貼圖引擎與 CLI 測試。"""
 
 from __future__ import annotations
 
-import base64
 import json
 import sys
-import threading
-import urllib.request
-from http.server import ThreadingHTTPServer
-from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -19,12 +14,10 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from sticker_maker.ai_suggest import _parse_caption_list, load_agent_queue
-from sticker_maker.config import StickerConfig
+from sticker_maker.cli import main as cli_main
 from sticker_maker.cutout import add_sticker_outline, evaluate_mask_quality
 from sticker_maker.naming import build_output_path, sanitize_token
-from sticker_maker.renderer import StickerOptions, render_sticker, save_lossless
-from sticker_maker.server import make_handler
+from sticker_maker.renderer import StickerOptions, render_sticker
 
 
 def _make_sample_image(path: Path, size: tuple[int, int] = (600, 800)) -> Path:
@@ -35,13 +28,6 @@ def _make_sample_image(path: Path, size: tuple[int, int] = (600, 800)) -> Path:
     arr[150:650, 150:450] = [235, 195, 175]
     Image.fromarray(arr, mode="RGB").save(path, format="PNG")
     return path
-
-
-def _make_data_url(size: tuple[int, int] = (400, 400)) -> str:
-    img = Image.new("RGB", size, (80, 140, 210))
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def test_naming_person_and_text_with_collision_protection(tmp_path: Path) -> None:
@@ -84,81 +70,26 @@ def test_cutout_outline_and_quality_guard() -> None:
     assert evaluate_mask_quality(np.zeros((100, 100), dtype=np.uint8)).warning is not None
 
 
-def test_caption_parser_and_agent_queue(tmp_path: Path) -> None:
-    assert _parse_caption_list('```json\n["在幹嘛", "偷看", "笑死"]\n```') == ["在幹嘛", "偷看", "笑死"]
-    img = _make_sample_image(tmp_path / "sample.png", (300, 300))
-    q_file = tmp_path / "agent_queue.json"
-    q_file.write_text(
-        json.dumps(
-            {
-                "items": [
-                    {
-                        "image_path": str(img),
-                        "person": "沅禧",
-                        "recommended_text": "在幹嘛",
-                        "suggestions": ["在幹嘛", "偷看", "嗨～"],
-                    }
-                ]
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+def test_cli_end_to_end_lossless_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    src = _make_sample_image(tmp_path / "in.png", size=(768, 1024))
+    out_dir = tmp_path / "out"
+    code = cli_main(
+        [
+            str(src),
+            "--person",
+            "沅禧",
+            "--text",
+            "在幹嘛",
+            "--aspect",
+            "1:1",
+            "--out-dir",
+            str(out_dir),
+            "--json",
+        ]
     )
-    loaded = load_agent_queue(q_file)
-    assert len(loaded) == 1
-    assert loaded[0]["person"] == "沅禧"
-    assert loaded[0]["suggestions"] == ["在幹嘛", "偷看", "嗨～"]
-
-
-def test_http_server_render_and_save_api(tmp_path: Path) -> None:
-    cfg = StickerConfig(default_output_dir=tmp_path)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(cfg, port_override=None))
-    port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        base = f"http://127.0.0.1:{port}"
-        with urllib.request.urlopen(f"{base}/api/config") as r:
-            cfg_data = json.loads(r.read().decode("utf-8"))
-            assert cfg_data["default_output_dir"] == str(tmp_path)
-
-        payload = json.dumps(
-            {
-                "image_data": _make_data_url((400, 400)),
-                "person": "沅禧",
-                "text": "收到！",
-                "mode": "original",
-                "crop": [0.0, 0.0, 1.0, 1.0],
-                "format": "png",
-                "output_dir": str(tmp_path),
-            }
-        ).encode("utf-8")
-
-        req_render = urllib.request.Request(f"{base}/api/render", data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req_render) as r:
-            res_render = json.loads(r.read().decode("utf-8"))
-            assert res_render["ok"] is True
-            assert res_render["output_size"] == [400, 400]
-            assert res_render["image_data"].startswith("data:image/png;base64,")
-
-        req_save = urllib.request.Request(f"{base}/api/save", data=payload, headers={"Content-Type": "application/json"}, method="POST")
-        with urllib.request.urlopen(req_save) as r:
-            res_save = json.loads(r.read().decode("utf-8"))
-            assert res_save["ok"] is True
-            assert res_save["filename"] == "沅禧_收到！.png"
-            assert (tmp_path / "沅禧_收到！.png").exists()
-
-        req_agy = urllib.request.Request(
-            f"{base}/api/agy/prepare",
-            data=json.dumps({"image_data": _make_data_url((300, 300)), "person": "沅禧"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req_agy) as r:
-            res_agy = json.loads(r.read().decode("utf-8"))
-            assert res_agy["ok"] is True
-            assert "ask_agy.png" in res_agy["prompt"]
-            assert Path(res_agy["image_path"]).exists()
-    finally:
-        server.shutdown()
-        server.server_close()
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    out_file = Path(payload["output_path"])
+    assert out_file.exists()
+    assert out_file.name == "沅禧_在幹嘛.png"
+    assert payload["output_size"] == [768, 768]

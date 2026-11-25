@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,11 +28,6 @@ class StickerConfig:
     default_text_scale: float = 0.11
     default_stroke_ratio: float = 0.068
     naming_separator: str = "_"
-    server_host: str = "0.0.0.0"
-    server_port: int = 8765
-    gemini_model: str = "gemini-2.5-flash"
-    quick_members: tuple[str, ...] = field(default_factory=lambda: ("沅禧", "Ahyeon", "Rora"))
-    quick_captions: dict[str, list[str]] = field(default_factory=dict)
 
 
 def load_config(config_path: Path | None = None) -> StickerConfig:
@@ -42,8 +37,6 @@ def load_config(config_path: Path | None = None) -> StickerConfig:
 
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     defaults = StickerConfig()
-    raw_members = data.get("quick_members", list(defaults.quick_members))
-    raw_captions = data.get("quick_captions", {})
     return StickerConfig(
         default_output_dir=Path(data.get("default_output_dir", str(defaults.default_output_dir))),
         default_mode=str(data.get("default_mode", defaults.default_mode)),
@@ -60,9 +53,4 @@ def load_config(config_path: Path | None = None) -> StickerConfig:
         default_text_scale=float(data.get("default_text_scale", defaults.default_text_scale)),
         default_stroke_ratio=float(data.get("default_stroke_ratio", defaults.default_stroke_ratio)),
         naming_separator=str(data.get("naming_separator", defaults.naming_separator)),
-        server_host=str(data.get("server_host", defaults.server_host)),
-        server_port=int(data.get("server_port", defaults.server_port)),
-        gemini_model=str(data.get("gemini_model", defaults.gemini_model)),
-        quick_members=tuple(str(m) for m in raw_members),
-        quick_captions={str(k): [str(x) for x in v] for k, v in raw_captions.items()},
     )

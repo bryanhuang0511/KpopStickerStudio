@@ -7,11 +7,8 @@ __pycache__/
 *$py.class
 .pytest_cache/
 
-# Local runtime staging & secrets (never commit keys or temp images)
+# Local temp outputs & secrets
 .env
-.studio_runtime/
-agent_queue.json
-KpopStickerStudio.exe
 output/
 temp/
 *.tmp
