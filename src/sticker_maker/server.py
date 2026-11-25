@@ -470,8 +470,8 @@ def run_server(
                 if bye_at is not None and (now - bye_at) >= 2.5 and last_seen <= bye_at:
                     server.shutdown()
                     return
-                # 保護：若視窗異常崩潰，啟動超過 20 秒後連續 18 秒無心跳則自動關閉
-                if (now - heartbeat_state["started_at"]) > 20.0 and (now - last_seen) > 18.0:
+                # 保護：若視窗異常崩潰未送出 bye，連續 30 分鐘無任何互動才自動關閉（避免背景視窗節流誤關）
+                if (now - heartbeat_state["started_at"]) > 60.0 and (now - last_seen) > 1800.0:
                     server.shutdown()
                     return
 

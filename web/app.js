@@ -941,9 +941,11 @@
     .catch((err) => showToast(`載入設定失敗：${err.message}`));
 
   // 心跳保活與關窗自動收尾（支援 .exe 無黑窗模式 0 背景殘留）
-  setInterval(() => {
-    fetch("/api/ping", { method: "POST" }).catch(() => {});
-  }, 3000);
+  const sendPing = () => fetch("/api/ping", { method: "POST" }).catch(() => {});
+  setInterval(sendPing, 10000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) sendPing();
+  });
 
   window.addEventListener("pagehide", () => {
     try {
