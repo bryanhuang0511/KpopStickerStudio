@@ -45,21 +45,19 @@ namespace KpopStickerStudioLauncher
             }
 
             Process serverProc = null;
-            bool startedByUs = false;
 
             if (!IsPortOpen(Host, Port))
             {
                 var psi = new ProcessStartInfo
                 {
                     FileName = pyExe,
-                    Arguments = "\"" + script + "\" --no-browser --port " + Port,
+                    Arguments = "\"" + script + "\" --no-browser --auto-exit --port " + Port,
                     WorkingDirectory = baseDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden
                 };
                 serverProc = Process.Start(psi);
-                startedByUs = true;
 
                 bool ready = false;
                 for (int i = 0; i < 60; i++)
@@ -99,16 +97,7 @@ namespace KpopStickerStudioLauncher
                     Arguments = "--app=" + url + " --window-size=1380,860 --user-data-dir=\"" + profileDir + "\"",
                     UseShellExecute = false
                 };
-                Process appProc = Process.Start(appPsi);
-                if (appProc != null)
-                {
-                    appProc.WaitForExit();
-                }
-
-                if (startedByUs)
-                {
-                    TryStopServer(serverProc);
-                }
+                Process.Start(appPsi);
             }
             else
             {

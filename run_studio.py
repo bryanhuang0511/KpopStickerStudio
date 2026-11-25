@@ -18,8 +18,9 @@ def main() -> int:
     parser.add_argument("--host", default=None, help="監聽位址（預設 0.0.0.0）")
     parser.add_argument("--port", type=int, default=None, help="連接埠（預設 8765）")
     parser.add_argument("--no-browser", action="store_true", help="不自動開啟瀏覽器")
+    parser.add_argument("--auto-exit", action="store_true", help="視窗關閉失去心跳後自動結束伺服器")
     args = parser.parse_args()
-    run_server(host=args.host, port=args.port, open_browser=not args.no_browser)
+    run_server(host=args.host, port=args.port, open_browser=not args.no_browser, auto_exit=args.auto_exit)
     return 0
 
 

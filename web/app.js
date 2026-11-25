@@ -939,4 +939,15 @@
       initQuickControls(cfg);
     })
     .catch((err) => showToast(`載入設定失敗：${err.message}`));
+
+  // 心跳保活與關窗自動收尾（支援 .exe 無黑窗模式 0 背景殘留）
+  setInterval(() => {
+    fetch("/api/ping", { method: "POST" }).catch(() => {});
+  }, 3000);
+
+  window.addEventListener("pagehide", () => {
+    try {
+      navigator.sendBeacon("/api/bye", "{}");
+    } catch (_) {}
+  });
 })();

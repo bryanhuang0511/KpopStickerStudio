@@ -115,9 +115,18 @@ def _build_options_from_payload(payload: dict[str, Any], cfg: StickerConfig) -> 
     )
 
 
-def make_handler(config: StickerConfig | None = None, port_override: int | None = None):
+def make_handler(
+    config: StickerConfig | None = None,
+    port_override: int | None = None,
+    heartbeat_state: dict[str, Any] | None = None,
+):
     cfg = config or load_config()
     active_port = port_override or cfg.server_port
+
+    def _touch_activity() -> None:
+        if heartbeat_state is not None:
+            heartbeat_state["last_seen"] = time.monotonic()
+            heartbeat_state["bye_at"] = None
 
     class StudioHandler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: Any) -> None:
@@ -155,6 +164,7 @@ def make_handler(config: StickerConfig | None = None, port_override: int | None 
             return json.loads(raw.decode("utf-8"))
 
         def do_GET(self) -> None:
+            _touch_activity()
             parsed = urlparse(self.path)
             path = parsed.path
 
@@ -252,6 +262,19 @@ def make_handler(config: StickerConfig | None = None, port_override: int | None 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             path = parsed.path
+
+            if path == "/api/ping":
+                _touch_activity()
+                self._send_json({"ok": True})
+                return
+
+            if path == "/api/bye":
+                if heartbeat_state is not None:
+                    heartbeat_state["bye_at"] = time.monotonic()
+                self._send_json({"ok": True})
+                return
+
+            _touch_activity()
 
             try:
                 payload = self._read_json_body()
@@ -411,11 +434,21 @@ def make_handler(config: StickerConfig | None = None, port_override: int | None 
     return StudioHandler
 
 
-def run_server(host: str | None = None, port: int | None = None, open_browser: bool = True) -> None:
+def run_server(
+    host: str | None = None,
+    port: int | None = None,
+    open_browser: bool = True,
+    auto_exit: bool = False,
+) -> None:
     cfg = load_config()
     bind_host = host or cfg.server_host
     bind_port = port or cfg.server_port
-    server = ThreadingHTTPServer((bind_host, bind_port), make_handler(cfg, bind_port))
+    heartbeat_state: dict[str, Any] = {
+        "last_seen": time.monotonic(),
+        "bye_at": None,
+        "started_at": time.monotonic(),
+    }
+    server = ThreadingHTTPServer((bind_host, bind_port), make_handler(cfg, bind_port, heartbeat_state))
     local_url = f"http://127.0.0.1:{bind_port}"
     lan_url = f"http://{get_lan_ip()}:{bind_port}"
     print("==============================================")
@@ -423,8 +456,27 @@ def run_server(host: str | None = None, port: int | None = None, open_browser: b
     print(f"  本機網址：{local_url}")
     print(f"  手機區網：{lan_url}")
     print(f"  預設存檔：{cfg.default_output_dir}")
-    print("  關閉此視窗即可完全結束（0 背景殘留）")
+    print("  關閉視窗即可自動結束（0 背景殘留）")
     print("==============================================")
+
+    if auto_exit:
+        def _watchdog() -> None:
+            while True:
+                time.sleep(0.8)
+                now = time.monotonic()
+                bye_at = heartbeat_state.get("bye_at")
+                last_seen = heartbeat_state["last_seen"]
+                # 收到關閉視窗通知且 2.5 秒內無新請求（非 F5 重整），立即關閉
+                if bye_at is not None and (now - bye_at) >= 2.5 and last_seen <= bye_at:
+                    server.shutdown()
+                    return
+                # 保護：若視窗異常崩潰，啟動超過 20 秒後連續 18 秒無心跳則自動關閉
+                if (now - heartbeat_state["started_at"]) > 20.0 and (now - last_seen) > 18.0:
+                    server.shutdown()
+                    return
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
     if open_browser:
         webbrowser.open(local_url)
     try:
