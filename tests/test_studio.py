@@ -147,6 +147,18 @@ def test_http_server_render_and_save_api(tmp_path: Path) -> None:
             assert res_save["ok"] is True
             assert res_save["filename"] == "沅禧_收到！.png"
             assert (tmp_path / "沅禧_收到！.png").exists()
+
+        req_agy = urllib.request.Request(
+            f"{base}/api/agy/prepare",
+            data=json.dumps({"image_data": _make_data_url((300, 300)), "person": "沅禧"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_agy) as r:
+            res_agy = json.loads(r.read().decode("utf-8"))
+            assert res_agy["ok"] is True
+            assert "ask_agy.png" in res_agy["prompt"]
+            assert Path(res_agy["image_path"]).exists()
     finally:
         server.shutdown()
         server.server_close()

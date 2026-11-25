@@ -112,7 +112,11 @@
       <div class="section">
         <div class="field-head">
           <label class="field-label">貼圖文字（支援 Enter 換行）</label>
-          <button id="btnAiSuggest" class="btn btn-ai btn-xs">✨ AI 看圖想詞條</button>
+          <div style="display:flex;gap:4px;">
+            <button id="btnAskAgy" class="btn btn-ai btn-xs" title="匯出目前圖片並複製指令，貼到 AGY 對話後會自動同步回傳詞條">💬 請 AGY 配詞</button>
+            <button id="btnPullAgy" class="btn btn-secondary btn-xs" title="立即讀取 AGY 回傳的詞條">🔄</button>
+            <button id="btnAiSuggest" class="btn btn-secondary btn-xs" title="直連 Gemini API 看圖推薦">✨</button>
+          </div>
         </div>
         <textarea id="inputText" rows="2" placeholder="輸入回訊息梗字，例如：在幹嘛"></textarea>
 

@@ -11,6 +11,7 @@ __pycache__/
 .env
 .studio_runtime/
 agent_queue.json
+KpopStickerStudio.exe
 output/
 temp/
 *.tmp

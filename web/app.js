@@ -10,6 +10,8 @@
     renderTimer: null,
     renderSeq: 0,
     drag: null,
+    agyPollTimer: null,
+    lastAgyReplyTs: 0,
   };
 
   const el = {
@@ -38,6 +40,8 @@
     inputPerson: document.getElementById("inputPerson"),
     quickMembers: document.getElementById("quickMembers"),
     inputText: document.getElementById("inputText"),
+    btnAskAgy: document.getElementById("btnAskAgy"),
+    btnPullAgy: document.getElementById("btnPullAgy"),
     btnAiSuggest: document.getElementById("btnAiSuggest"),
     aiSuggestBox: document.getElementById("aiSuggestBox"),
     aiSuggestLabel: document.getElementById("aiSuggestLabel"),
@@ -599,6 +603,89 @@
     }
   }
 
+  async function askAgyForCaptions() {
+    const item = getActive();
+    if (!item) {
+      showToast("請先貼上或選擇一張圖片");
+      return;
+    }
+    el.btnAskAgy.disabled = true;
+    try {
+      const resp = await fetch("/api/agy/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_data: item.dataUrl, person: el.inputPerson.value.trim() }),
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        showToast(`準備 AGY 交接失敗：${data.error}`, 3500);
+        return;
+      }
+      state.lastAgyReplyTs = data.timestamp;
+      try {
+        await navigator.clipboard.writeText(data.prompt);
+        showToast("已複製指令！切到 AGY 按 Ctrl+V 送出，詞條會自動同步回來", 4500);
+      } catch (_) {
+        window.prompt("請複製以下指令貼給 AGY：", data.prompt);
+      }
+      startAgyPolling();
+    } catch (err) {
+      showToast(`連線失敗：${err.message}`);
+    } finally {
+      el.btnAskAgy.disabled = false;
+    }
+  }
+
+  async function pullAgyReply(manual = false) {
+    try {
+      const resp = await fetch("/api/agy/reply");
+      const data = await resp.json();
+      if (!data.ok || !data.has_reply) {
+        if (manual) showToast("尚未收到 AGY 新回覆詞條");
+        return false;
+      }
+      if (!manual && data.timestamp <= state.lastAgyReplyTs) return false;
+      state.lastAgyReplyTs = data.timestamp;
+      const item = getActive();
+      if (item) {
+        item.suggestions = data.captions;
+        if (data.person && !el.inputPerson.value.trim()) {
+          el.inputPerson.value = data.person;
+          item.person = data.person;
+        }
+        if (Array.isArray(data.crop) && data.crop.length === 4) {
+          item.crop = data.crop.map(Number);
+          drawCropCanvas();
+          scheduleRender(true);
+        }
+      }
+      const label = data.note ? `🤖 AGY 推薦詞條（${data.note}）` : "🤖 AGY 推薦詞條（點一下帶入）";
+      renderSuggestions(data.captions, label);
+      showToast(`✨ 已同步 ${data.captions.length} 組 AGY 推薦詞條！`, 3000);
+      stopAgyPolling();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function startAgyPolling() {
+    stopAgyPolling();
+    let ticks = 0;
+    state.agyPollTimer = setInterval(async () => {
+      ticks += 1;
+      const got = await pullAgyReply(false);
+      if (got || ticks >= 60) stopAgyPolling();
+    }, 1500);
+  }
+
+  function stopAgyPolling() {
+    if (state.agyPollTimer) {
+      clearInterval(state.agyPollTimer);
+      state.agyPollTimer = null;
+    }
+  }
+
   async function requestAiSuggestions() {
     const item = getActive();
     if (!item) {
@@ -830,6 +917,8 @@
 
   el.btnSave.addEventListener("click", saveCurrentSticker);
   el.btnCopyPng.addEventListener("click", copyPreviewToClipboard);
+  el.btnAskAgy.addEventListener("click", askAgyForCaptions);
+  el.btnPullAgy.addEventListener("click", () => pullAgyReply(true));
   el.btnAiSuggest.addEventListener("click", requestAiSuggestions);
   el.btnLoadAgentQueue.addEventListener("click", loadAgentQueue);
   el.btnOpenFolder.addEventListener("click", () => {

@@ -8,6 +8,8 @@ import mimetypes
 import os
 import socket
 import subprocess
+import threading
+import time
 import uuid
 import webbrowser
 from http import HTTPStatus
@@ -25,6 +27,10 @@ from .naming import build_output_path
 from .renderer import StickerOptions, encode_lossless_bytes, render_sticker_from_image, save_lossless
 
 WEB_DIR = PROJECT_ROOT / "web"
+RUNTIME_DIR = PROJECT_ROOT / ".studio_runtime"
+AGY_ASK_IMAGE = RUNTIME_DIR / "ask_agy.png"
+AGY_ASK_META = RUNTIME_DIR / "ask_agy_meta.json"
+AGY_REPLY_FILE = RUNTIME_DIR / "agy_reply.json"
 _SAVED_TOKENS: dict[str, Path] = {}
 
 
@@ -181,6 +187,30 @@ def make_handler(config: StickerConfig | None = None, port_override: int | None 
                 self._send_json({"items": items, "count": len(items)})
                 return
 
+            if path == "/api/agy/reply":
+                if not AGY_REPLY_FILE.exists():
+                    self._send_json({"ok": True, "has_reply": False, "timestamp": 0, "captions": []})
+                    return
+                try:
+                    data = json.loads(AGY_REPLY_FILE.read_text(encoding="utf-8"))
+                    mtime = int(AGY_REPLY_FILE.stat().st_mtime * 1000)
+                    ts = int(data.get("timestamp", mtime))
+                    captions = [str(c).strip() for c in data.get("captions", []) if str(c).strip()]
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "has_reply": bool(captions),
+                            "timestamp": max(ts, mtime),
+                            "person": str(data.get("person", "")),
+                            "captions": captions,
+                            "crop": data.get("crop"),
+                            "note": str(data.get("note", "")),
+                        }
+                    )
+                except Exception as exc:
+                    self._send_json({"ok": False, "has_reply": False, "error": str(exc)})
+                return
+
             if path == "/api/agent-image":
                 qs = parse_qs(parsed.query)
                 try:
@@ -323,6 +353,48 @@ def make_handler(config: StickerConfig | None = None, port_override: int | None 
                     self._send_json(res)
                 except Exception as exc:
                     self._send_json({"ok": False, "captions": [], "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+
+            if path == "/api/agy/prepare":
+                try:
+                    image_data = payload.get("image_data")
+                    if not image_data:
+                        raise ValueError("請先在軟體中貼上或選擇一張圖片。")
+                    raw_img = _decode_data_url_image(image_data)
+                    person = str(payload.get("person", "")).strip()
+                    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+                    raw_img.convert("RGBA").save(AGY_ASK_IMAGE, format="PNG", compress_level=4)
+                    now_ms = int(time.time() * 1000)
+                    AGY_ASK_META.write_text(
+                        json.dumps(
+                            {
+                                "timestamp": now_ms,
+                                "image_path": str(AGY_ASK_IMAGE),
+                                "person": person,
+                                "reply_path": str(AGY_REPLY_FILE),
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        encoding="utf-8",
+                    )
+                    who = f"（成員：{person}）" if person else ""
+                    prompt_text = f"請幫我看這張貼圖素材配詞並寫回 KpopStickerStudio：{AGY_ASK_IMAGE}{who}"
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "timestamp": now_ms,
+                            "image_path": str(AGY_ASK_IMAGE),
+                            "prompt": prompt_text,
+                        }
+                    )
+                except Exception as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+
+            if path == "/api/shutdown":
+                self._send_json({"ok": True, "message": "伺服器關閉中"})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
 
             if path == "/api/open-folder":
