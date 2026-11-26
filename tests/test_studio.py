@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 from sticker_maker.batch import run_batch_jobs
 from sticker_maker.cli import main as cli_main
+from sticker_maker.config import load_config
 from sticker_maker.cutout import add_sticker_outline, evaluate_mask_quality
 from sticker_maker.fonts import find_unsupported_chars, resolve_font
 from sticker_maker.naming import build_output_path, sanitize_token
@@ -151,3 +152,9 @@ def test_run_batch_jobs_with_group_structure_and_sheet(tmp_path: Path) -> None:
     assert out_file.exists()
     assert results[0]["output_size"] == [768, 768]
     assert sheet_path.exists()
+
+
+def test_load_config_expands_user_home_dir() -> None:
+    cfg = load_config()
+    assert cfg.default_output_dir.is_absolute()
+    assert "~" not in str(cfg.default_output_dir)

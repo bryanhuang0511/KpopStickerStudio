@@ -24,7 +24,7 @@ from .renderer import (
 
 def _resolve_job_out_dir(job: dict[str, Any], default_out_dir: Path) -> Path:
     if job.get("out_dir"):
-        return Path(job["out_dir"])
+        return Path(job["out_dir"]).expanduser()
     group = str(job.get("group", "")).strip()
     person = str(job.get("person", "")).strip()
     if group and person:

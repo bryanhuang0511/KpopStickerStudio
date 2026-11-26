@@ -13,7 +13,7 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.json"
 
 @dataclass(frozen=True)
 class StickerConfig:
-    default_output_dir: Path = Path(r"C:\Users\yexia\Pictures\貼圖")
+    default_output_dir: Path = Path.home() / "Pictures" / "貼圖"
     default_mode: str = "original"
     default_format: str = "png"
     default_max_size: int = 1024
@@ -38,7 +38,7 @@ def load_config(config_path: Path | None = None) -> StickerConfig:
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     defaults = StickerConfig()
     return StickerConfig(
-        default_output_dir=Path(data.get("default_output_dir", str(defaults.default_output_dir))),
+        default_output_dir=Path(data.get("default_output_dir", str(defaults.default_output_dir))).expanduser(),
         default_mode=str(data.get("default_mode", defaults.default_mode)),
         default_format=str(data.get("default_format", defaults.default_format)),
         default_max_size=int(data.get("default_max_size", defaults.default_max_size)),

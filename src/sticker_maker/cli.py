@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
 
     result = render_sticker(args.input, options)
     output_path = build_output_path(
-        output_dir=args.out_dir,
+        output_dir=args.out_dir.expanduser(),
         person=args.person,
         text=text_decoded,
         ext=args.fmt,
