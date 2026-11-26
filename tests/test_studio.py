@@ -14,10 +14,17 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from sticker_maker.batch import run_batch_jobs
 from sticker_maker.cli import main as cli_main
 from sticker_maker.cutout import add_sticker_outline, evaluate_mask_quality
+from sticker_maker.fonts import find_unsupported_chars, resolve_font
 from sticker_maker.naming import build_output_path, sanitize_token
-from sticker_maker.renderer import StickerOptions, render_sticker
+from sticker_maker.renderer import (
+    StickerOptions,
+    compute_square_crop_norm,
+    detect_uniform_border_crop,
+    render_sticker,
+)
 
 
 def _make_sample_image(path: Path, size: tuple[int, int] = (600, 800)) -> Path:
@@ -93,3 +100,54 @@ def test_cli_end_to_end_lossless_output(tmp_path: Path, capsys: pytest.CaptureFi
     assert out_file.exists()
     assert out_file.name == "沅禧_在幹嘛.png"
     assert payload["output_size"] == [768, 768]
+
+
+def test_detect_uniform_border_and_auto_trim(tmp_path: Path) -> None:
+    arr = np.full((600, 800, 3), 255, dtype=np.uint8)
+    arr[50:550, 150:650] = [40, 110, 190]
+    bordered = Image.fromarray(arr, mode="RGB")
+
+    box = detect_uniform_border_crop(bordered)
+    assert box == (150, 50, 650, 550)
+
+    crop = compute_square_crop_norm(800, 600, box, y_bias=0.05)
+    assert crop == (0.1875, 0.0833, 0.8125, 0.9167)
+
+    src = tmp_path / "bordered.png"
+    bordered.save(src, format="PNG")
+    res = render_sticker(src, StickerOptions(mode="original", text="", auto_trim=True, aspect="1:1"))
+    assert res.output_size == (500, 500)
+
+
+def test_find_unsupported_chars_flags_missing_emoji() -> None:
+    font = resolve_font(48, preset="bold", text="切拜🙏")
+    unsupported = find_unsupported_chars("切拜♡🙏", font)
+    assert "切" not in unsupported
+    assert "♡" not in unsupported
+    assert "🙏" in unsupported
+
+
+def test_run_batch_jobs_with_group_structure_and_sheet(tmp_path: Path) -> None:
+    src = _make_sample_image(tmp_path / "ILLIT_Minju_01.png", size=(768, 1024))
+    out_root = tmp_path / "stickers"
+    sheet_path = tmp_path / "verify.jpg"
+
+    results = run_batch_jobs(
+        [
+            {
+                "input": str(src),
+                "group": "ILLIT",
+                "person": "Minju",
+                "text": "收到！",
+                "y_bias": 0.05,
+            }
+        ],
+        default_out_dir=out_root,
+        verify_sheet_path=sheet_path,
+    )
+    assert len(results) == 1
+    out_file = Path(results[0]["output_path"])
+    assert out_file == out_root / "ILLIT" / "Minju" / "Minju_收到！.png"
+    assert out_file.exists()
+    assert results[0]["output_size"] == [768, 768]
+    assert sheet_path.exists()

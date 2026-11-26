@@ -98,3 +98,26 @@ def resolve_font(
             return font
 
     return ImageFont.load_default()
+
+
+def find_unsupported_chars(text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont) -> list[str]:
+    """檢查字串中是否含有目前字體不支援、會渲染成缺字方框 (.notdef) 的字元。"""
+    if not text or not isinstance(font, ImageFont.FreeTypeFont):
+        return []
+    try:
+        notdef = bytes(font.getmask("\uffff"))
+    except Exception:
+        return []
+
+    unsupported: list[str] = []
+    seen: set[str] = set()
+    for ch in text:
+        if ch.isspace() or ch in seen:
+            continue
+        seen.add(ch)
+        try:
+            if bytes(font.getmask(ch)) == notdef:
+                unsupported.append(ch)
+        except Exception:
+            unsupported.append(ch)
+    return unsupported

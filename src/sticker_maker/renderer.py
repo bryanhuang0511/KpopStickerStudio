@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 
 from .cutout import CutoutQuality, add_sticker_outline, remove_background
-from .fonts import TEXT_STYLES, resolve_font
+from .fonts import TEXT_STYLES, find_unsupported_chars, resolve_font
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class StickerOptions:
     stroke_ratio: float | None = None
     text_angle: float = 0.0
     bg_fill: str | None = None
+    auto_trim: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,64 @@ class RenderResult:
     original_size: tuple[int, int]
     output_size: tuple[int, int]
     cutout_quality: CutoutQuality | None = None
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+def detect_uniform_border_crop(image: Image.Image) -> tuple[int, int, int, int]:
+    """偵測純白或純黑外框（常見於限動/SNS截圖或黑邊），回傳有效內容像素框 (x1, y1, x2, y2)。"""
+    arr = np.asarray(image.convert("RGB"))
+    h, w, _ = arr.shape
+
+    def is_uniform_line(line: np.ndarray) -> bool:
+        mean_val = line.mean(axis=0)
+        std_val = line.std(axis=0).max()
+        is_white = bool((mean_val > 250).all() and std_val < 2.5)
+        is_black = bool((mean_val < 8).all() and std_val < 2.5)
+        return is_white or is_black
+
+    x1, x2 = 0, w
+    while x1 < w // 3 and is_uniform_line(arr[:, x1, :]):
+        x1 += 1
+    while x2 > (2 * w) // 3 and is_uniform_line(arr[:, x2 - 1, :]):
+        x2 -= 1
+
+    y1, y2 = 0, h
+    while y1 < h // 3 and is_uniform_line(arr[y1, x1:x2, :]):
+        y1 += 1
+    while y2 > (2 * h) // 3 and is_uniform_line(arr[y2 - 1, x1:x2, :]):
+        y2 -= 1
+
+    if (x2 - x1) < w * 0.4 or (y2 - y1) < h * 0.4:
+        return (0, 0, w, h)
+    return (x1, y1, x2, y2)
+
+
+def compute_square_crop_norm(
+    w: int,
+    h: int,
+    content_box: tuple[int, int, int, int],
+    y_bias: float = 0.05,
+    x_bias: float = 0.5,
+    zoom: float = 1.0,
+) -> tuple[float, float, float, float]:
+    """在有效內容框內計算歸一化 1:1 裁切座標（預設偏上保留頭部與手勢）。"""
+    cx1, cy1, cx2, cy2 = content_box
+    cw = cx2 - cx1
+    ch = cy2 - cy1
+    side = min(cw, ch) * zoom
+    side = max(64.0, min(float(cw), float(ch), side))
+
+    left = cx1 + (cw - side) * x_bias
+    top = cy1 + (ch - side) * y_bias
+    left = max(float(cx1), min(float(cx2) - side, left))
+    top = max(float(cy1), min(float(cy2) - side, top))
+
+    return (
+        round(left / w, 4),
+        round(top / h, 4),
+        round((left + side) / w, 4),
+        round((top + side) / h, 4),
+    )
 
 
 def apply_normalized_crop(
@@ -179,9 +239,9 @@ def _draw_text_overlay(
     text: str,
     options: StickerOptions,
     target_box: tuple[int, int, int, int] | None = None,
-) -> Image.Image:
+) -> tuple[Image.Image, list[str]]:
     if not text.strip():
-        return canvas
+        return canvas, []
 
     rgba = canvas.convert("RGBA")
     w, h = rgba.size
@@ -260,17 +320,23 @@ def _draw_text_overlay(
     dest_y = max(0, min(h - lh, cy - lh // 2))
 
     rgba.alpha_composite(txt_layer, dest=(dest_x, dest_y))
-    return rgba
+    unsupported = find_unsupported_chars(text, font)
+    warnings = [f"字型不支援字元（將顯示缺字方框）：{''.join(unsupported)}"] if unsupported else []
+    return rgba, warnings
 
 
 def render_sticker_from_image(raw_image: Image.Image, options: StickerOptions) -> RenderResult:
     """從 PIL Image 直接執行無損渲染管線（供檔案路徑與 HTTP 記憶體上傳共用）。"""
     img = ImageOps.exif_transpose(raw_image).convert("RGBA")
     original_size = img.size
-    img = apply_normalized_crop(img, options.crop)
+    if options.crop is not None:
+        img = apply_normalized_crop(img, options.crop)
+    elif options.auto_trim:
+        img = img.crop(detect_uniform_border_crop(img))
     img = apply_aspect_crop(img, options.aspect, anchor=options.crop_anchor)
 
     cutout_quality: CutoutQuality | None = None
+    warnings: list[str] = []
 
     if options.mode == "cutout":
         cutout_img, cutout_quality = remove_background(img, model_name=options.cutout_model)
@@ -293,7 +359,7 @@ def render_sticker_from_image(raw_image: Image.Image, options: StickerOptions) -
             bg = Image.new("RGBA", out.size, options.bg_fill)
             bg.alpha_composite(out)
             out = bg
-        out = _draw_text_overlay(out, options.text, options)
+        out, warnings = _draw_text_overlay(out, options.text, options)
 
     elif options.mode == "meme-bar":
         img = resize_down_only(img, options.max_size)
@@ -313,7 +379,7 @@ def render_sticker_from_image(raw_image: Image.Image, options: StickerOptions) -
                 "text_style": "bar" if options.text_style == "classic" and options.text_fill is None else options.text_style,
             }
         )
-        out = _draw_text_overlay(out, options.text, bar_opts, target_box=text_box)
+        out, warnings = _draw_text_overlay(out, options.text, bar_opts, target_box=text_box)
         if options.radius > 0:
             out = apply_rounded_corners(out, options.radius)
 
@@ -321,7 +387,7 @@ def render_sticker_from_image(raw_image: Image.Image, options: StickerOptions) -
         out = resize_down_only(img, options.max_size)
         if options.radius > 0:
             out = apply_rounded_corners(out, options.radius)
-        out = _draw_text_overlay(out, options.text, options)
+        out, warnings = _draw_text_overlay(out, options.text, options)
     else:
         raise ValueError(f"不支援的模式：{options.mode}，可選：original | cutout | meme-bar")
 
@@ -330,6 +396,7 @@ def render_sticker_from_image(raw_image: Image.Image, options: StickerOptions) -
         original_size=original_size,
         output_size=out.size,
         cutout_quality=cutout_quality,
+        warnings=tuple(warnings),
     )
 
 

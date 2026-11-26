@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--format", dest="fmt", choices=["png", "webp", "jpg"], default=cfg.default_format, help="輸出格式")
     p.add_argument("--max-size", type=int, default=None, help="最長邊像素上限（0 表示不縮小保留原解析度）")
     p.add_argument("--crop", default=None, help="歸一化裁切框 x1,y1,x2,y2（0.0~1.0）")
+    p.add_argument("--auto-trim", action="store_true", help="自動裁除純白／純黑外框（限動或黑邊截圖）")
     p.add_argument("--aspect", choices=["free", "1:1", "4:3", "3:4", "16:9"], default="free", help="目標比例")
     p.add_argument("--crop-anchor", choices=["top", "center", "bottom"], default="top", help="自動比例裁切對齊基準")
     p.add_argument("--radius", type=int, default=0, help="圓角半徑像素")
@@ -116,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         stroke_ratio=args.stroke_ratio,
         text_angle=args.angle,
         bg_fill=args.bg_fill,
+        auto_trim=args.auto_trim,
     )
 
     result = render_sticker(args.input, options)
@@ -145,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             if result.cutout_quality
             else None
         ),
+        "warnings": list(result.warnings),
     }
 
     if args.json:
@@ -154,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"尺寸：{result.original_size[0]}x{result.original_size[1]} -> {result.output_size[0]}x{result.output_size[1]} ({payload['file_size_kb']} KB)")
         if result.cutout_quality and result.cutout_quality.warning:
             print(f"[去背提醒] {result.cutout_quality.warning}")
+        for warn in result.warnings:
+            print(f"[字型提醒] {warn}")
 
     return 0
 
